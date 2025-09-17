@@ -3,7 +3,7 @@ import { SearchForm } from '@/components/SearchForm';
 import { ResultsTable, BusinessResult } from '@/components/ResultsTable';
 import { useToast } from '@/components/ui/use-toast';
 import { generateCSV, downloadCSV } from '@/utils/csvExport';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [results, setResults] = useState<BusinessResult[]>([]);
