@@ -77,38 +77,72 @@ serve(async (req) => {
 
     console.log('Searching for:', query)
 
-    // Step 1: Search for places using Text Search API
-    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
-    
-    const searchResponse = await fetch(searchUrl)
-    const searchData = await searchResponse.json()
+    // Step 1: Search for places using Text Search API with pagination
+    let allResults: PlaceResult[] = []
+    let nextPageToken: string | undefined = undefined
+    let pageCount = 0
+    const maxPages = 3 // Limit to 3 pages (up to 60 results) to prevent excessive API calls
 
-    if (searchData.status !== 'OK' && searchData.status !== 'ZERO_RESULTS') {
-      console.error('Places API Error:', searchData)
-      return new Response(
-        JSON.stringify({ error: `Google Places API error: ${searchData.status}` }),
-        { 
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    do {
+      let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
+      
+      if (nextPageToken) {
+        searchUrl += `&pagetoken=${nextPageToken}`
+        // Google requires a short delay before using next_page_token
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+      
+      const searchResponse = await fetch(searchUrl)
+      const searchData = await searchResponse.json()
+
+      if (searchData.status !== 'OK' && searchData.status !== 'ZERO_RESULTS') {
+        console.error('Places API Error:', searchData)
+        if (pageCount === 0) {
+          // If first page fails, return error
+          return new Response(
+            JSON.stringify({ error: `Google Places API error: ${searchData.status}` }),
+            { 
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          )
+        } else {
+          // If subsequent page fails, break and use what we have
+          console.log('Breaking due to API error on page', pageCount + 1)
+          break
         }
-      )
-    }
+      }
 
-    if (searchData.status === 'ZERO_RESULTS' || !searchData.results?.length) {
-      return new Response(
-        JSON.stringify({ results: [] }),
-        { 
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      if (searchData.status === 'ZERO_RESULTS' || !searchData.results?.length) {
+        if (pageCount === 0) {
+          // No results on first page
+          return new Response(
+            JSON.stringify({ results: [] }),
+            { 
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          )
+        } else {
+          // No more results on subsequent pages
+          break
         }
-      )
-    }
+      }
 
-    console.log(`Found ${searchData.results.length} places`)
+      // Add results from this page
+      allResults = allResults.concat(searchData.results)
+      nextPageToken = searchData.next_page_token
+      pageCount++
+      
+      console.log(`Page ${pageCount}: Found ${searchData.results.length} places. Total so far: ${allResults.length}`)
+
+    } while (nextPageToken && pageCount < maxPages)
+
+    console.log(`Completed search across ${pageCount} pages. Total results: ${allResults.length}`)
 
     // Step 2: Get detailed information for each place including reviews
     const detailedResults = await Promise.all(
-      searchData.results.slice(0, 20).map(async (place: PlaceResult) => {
+      allResults.map(async (place: PlaceResult) => {
         try {
           const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,rating,user_ratings_total,business_status,website,price_level,reviews&key=${googleApiKey}`
           
