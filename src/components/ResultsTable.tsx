@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Download, Star, Phone, MapPin, Clock, MessageSquare } from 'lucide-react';
+import { Download, Star, Phone, MapPin, Clock, MessageSquare, ExternalLink, Globe } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -53,118 +53,192 @@ export const ResultsTable = ({ results, onDownloadCSV, isDownloading }: ResultsT
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            Search Results ({results.length} found)
-          </CardTitle>
+    <Card className="w-full elegant-shadow border-0 bg-card/50 backdrop-blur-sm animate-scale-in">
+      <CardHeader className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-t-lg">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-3 text-2xl">
+              <div className="h-8 w-8 rounded-lg hero-gradient flex items-center justify-center">
+                <MessageSquare className="h-4 w-4 text-white" />
+              </div>
+              Search Results
+              <Badge variant="secondary" className="ml-2 text-lg px-3 py-1">
+                {results.length} found
+              </Badge>
+            </CardTitle>
+            <p className="text-muted-foreground mt-1">
+              Comprehensive business data with reviews and contact information
+            </p>
+          </div>
           <Button 
             onClick={onDownloadCSV}
             disabled={isDownloading}
-            variant="outline"
-            size="sm"
+            size="lg"
+            className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white shadow-lg hover:shadow-xl transition-all duration-300"
           >
-            <Download className="h-4 w-4 mr-2" />
-            {isDownloading ? 'Generating...' : 'Download CSV'}
+            <Download className="h-5 w-5 mr-2" />
+            {isDownloading ? 'Generating...' : 'Export CSV'}
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Business Name</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Rating</TableHead>
-                <TableHead>Reviews</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {results.map((business) => (
-                <TableRow key={business.id}>
-                  <TableCell className="font-medium">{business.name}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <MapPin className="h-3 w-3" />
-                      {business.address}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {business.phone ? (
-                      <div className="flex items-center gap-1 text-sm">
-                        <Phone className="h-3 w-3" />
-                        {business.phone}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">N/A</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatRating(business.rating)}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {business.totalReviews} reviews
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={business.status === 'OPERATIONAL' ? 'default' : 'secondary'}>
-                      {business.status || 'Unknown'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => setSelectedBusiness(business)}
-                        >
-                          <MessageSquare className="h-4 w-4 mr-1" />
-                          Reviews
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2">
-                            {business.name} - Recent Reviews
-                          </DialogTitle>
-                        </DialogHeader>
-                        <ScrollArea className="h-96">
-                          <div className="space-y-4">
-                            {business.reviews.length > 0 ? (
-                              business.reviews.map((review, index) => (
-                                <div key={index} className="border-b pb-4 last:border-b-0">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="font-medium">{review.author}</div>
-                                    <div className="flex items-center gap-2">
-                                      {formatRating(review.rating)}
-                                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        <Clock className="h-3 w-3" />
-                                        {review.time}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground">{review.text}</p>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-muted-foreground text-center py-8">
-                                No reviews available
-                              </p>
-                            )}
-                          </div>
-                        </ScrollArea>
-                      </DialogContent>
-                    </Dialog>
-                  </TableCell>
+      <CardContent className="p-0">
+        <div className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-muted/20">
+                <TableRow className="border-b-2">
+                  <TableHead className="font-semibold text-foreground">Business Name</TableHead>
+                  <TableHead className="font-semibold text-foreground">Location</TableHead>
+                  <TableHead className="font-semibold text-foreground">Contact</TableHead>
+                  <TableHead className="font-semibold text-foreground">Rating</TableHead>
+                  <TableHead className="font-semibold text-foreground">Reviews</TableHead>
+                  <TableHead className="font-semibold text-foreground">Status</TableHead>
+                  <TableHead className="font-semibold text-foreground">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {results.map((business, index) => (
+                  <TableRow 
+                    key={business.id} 
+                    className="hover:bg-muted/30 transition-colors duration-200 animate-fade-in"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                  >
+                    <TableCell className="py-4">
+                      <div className="space-y-1">
+                        <div className="font-semibold text-foreground">{business.name}</div>
+                        <div className="flex items-center gap-2">
+                          {business.website && (
+                            <Badge variant="outline" className="text-xs">
+                              <Globe className="h-3 w-3 mr-1" />
+                              Website
+                            </Badge>
+                          )}
+                          {business.priceLevel && (
+                            <Badge variant="outline" className="text-xs text-green-600">
+                              {formatPriceLevel(business.priceLevel)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="flex items-start gap-2 max-w-xs">
+                        <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <span className="text-sm text-muted-foreground break-words">
+                          {business.address}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      {business.phone ? (
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{business.phone}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">No phone</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="space-y-1">
+                        {formatRating(business.rating)}
+                        <div className="text-xs text-muted-foreground">
+                          {business.totalReviews > 0 ? `${business.totalReviews} reviews` : 'No reviews'}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge 
+                        variant="secondary" 
+                        className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300"
+                      >
+                        {business.reviews.length} available
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <Badge 
+                        variant={business.status === 'OPERATIONAL' ? 'default' : 'secondary'}
+                        className={business.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300' : ''}
+                      >
+                        {business.status || 'Unknown'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div className="flex gap-2">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setSelectedBusiness(business)}
+                              className="hover-lift"
+                            >
+                              <MessageSquare className="h-4 w-4 mr-1" />
+                              Reviews
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-3xl max-h-[80vh]">
+                            <DialogHeader>
+                              <DialogTitle className="flex items-center gap-3 text-xl">
+                                <div className="h-8 w-8 rounded-lg hero-gradient flex items-center justify-center">
+                                  <Star className="h-4 w-4 text-white" />
+                                </div>
+                                {business.name}
+                                <Badge variant="secondary" className="ml-auto">
+                                  {business.reviews.length} Reviews
+                                </Badge>
+                              </DialogTitle>
+                            </DialogHeader>
+                            <ScrollArea className="h-[500px] pr-4">
+                              <div className="space-y-6">
+                                {business.reviews.length > 0 ? (
+                                  business.reviews.map((review, index) => (
+                                    <div key={index} className="bg-muted/30 rounded-xl p-4 space-y-3">
+                                      <div className="flex items-center justify-between">
+                                        <div className="font-semibold text-foreground">{review.author}</div>
+                                        <div className="flex items-center gap-3">
+                                          {formatRating(review.rating)}
+                                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                            <Clock className="h-3 w-3" />
+                                            {review.time}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground leading-relaxed">
+                                        {review.text}
+                                      </p>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="text-center py-12">
+                                    <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                                    <p className="text-muted-foreground">No reviews available for this business</p>
+                                  </div>
+                                )}
+                              </div>
+                            </ScrollArea>
+                          </DialogContent>
+                        </Dialog>
+                        {business.website && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                            className="hover-lift"
+                          >
+                            <a href={business.website} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4 mr-1" />
+                              Visit
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </CardContent>
     </Card>
