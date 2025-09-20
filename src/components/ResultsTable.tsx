@@ -132,6 +132,29 @@ Best regards`);
   const handleShareViaWhatsApp = () => {
     const csvContent = generateCSVContent();
     
+    // Try native share API first (can share files to WhatsApp on mobile)
+    if (navigator.share && navigator.canShare) {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const file = new File([blob], 'business_search_results.csv', { type: 'text/csv' });
+      
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          title: 'Business Search Results',
+          text: `📊 Found ${results.length} businesses from your search`,
+          files: [file]
+        }).catch(() => {
+          // Fallback to text summary if file sharing fails
+          fallbackWhatsAppShare();
+        });
+        return;
+      }
+    }
+    
+    // Fallback to text summary
+    fallbackWhatsAppShare();
+  };
+
+  const fallbackWhatsAppShare = () => {
     // Create a more concise summary for WhatsApp
     const summary = `📊 Business Search Results (${results.length} businesses found)\n\n` +
       results.slice(0, 5).map((business, index) => 
@@ -149,10 +172,8 @@ Best regards`);
         // For mobile, try WhatsApp app first
         window.location.href = `whatsapp://send?text=${message}`;
       } else {
-        // For desktop, provide fallback options
+        // For desktop, use WhatsApp web
         const whatsappUrl = `https://api.whatsapp.com/send?text=${message}`;
-        
-        // Try to open WhatsApp, with fallback
         const newWindow = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
         
         if (!newWindow) {
@@ -160,14 +181,7 @@ Best regards`);
           navigator.clipboard.writeText(decodeURIComponent(message)).then(() => {
             alert('WhatsApp link was blocked. The message has been copied to your clipboard. You can paste it in WhatsApp manually.');
           }).catch(() => {
-            // Final fallback - show the text
-            const textArea = document.createElement('textarea');
-            textArea.value = decodeURIComponent(message);
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            alert('WhatsApp link was blocked. The message has been copied to your clipboard. You can paste it in WhatsApp manually.');
+            alert('Could not open WhatsApp or copy to clipboard. Please check your browser settings.');
           });
         }
       }
