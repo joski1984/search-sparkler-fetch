@@ -6,31 +6,44 @@ export const generateCSV = (results: BusinessResult[]): string => {
     'Address', 
     'Phone',
     'Rating',
-    'Total Reviews',
+    'Reviews',
     'Status',
     'Website',
-    'Price Level',
-    'Latest Reviews (Top 10)'
+    'Price',
+    'Top Review'
   ];
+
+  // Helper function to truncate text and ensure proper formatting
+  const truncateText = (text: string, maxLength: number): string => {
+    if (!text) return 'N/A';
+    const cleanText = text.replace(/"/g, '""').replace(/\r?\n/g, ' ').trim();
+    return cleanText.length > maxLength ? cleanText.substring(0, maxLength) + '...' : cleanText;
+  };
 
   const csvRows = [
     headers.join(','),
     ...results.map(business => {
-      const reviews = business.reviews
-        .slice(0, 10)
-        .map(review => `"${review.author} (${review.rating}★): ${review.text.replace(/"/g, '""')}"`)
-        .join('; ');
+      // Get the best review (highest rating, then most recent)
+      const bestReview = business.reviews.length > 0 
+        ? business.reviews.reduce((best, current) => 
+            current.rating > best.rating ? current : best
+          )
+        : null;
+
+      const reviewText = bestReview 
+        ? `${bestReview.author} (${bestReview.rating}★): ${truncateText(bestReview.text, 100)}`
+        : 'No reviews';
 
       return [
-        `"${business.name.replace(/"/g, '""')}"`,
-        `"${business.address.replace(/"/g, '""')}"`,
+        `"${truncateText(business.name, 50)}"`,
+        `"${truncateText(business.address, 80)}"`,
         `"${business.phone || 'N/A'}"`,
         business.rating.toString(),
         business.totalReviews.toString(),
         `"${business.status || 'Unknown'}"`,
-        `"${business.website || 'N/A'}"`,
+        `"${truncateText(business.website || 'N/A', 50)}"`,
         `"${business.priceLevel ? '$'.repeat(business.priceLevel) : 'N/A'}"`,
-        `"${reviews}"`
+        `"${reviewText}"`
       ].join(',');
     })
   ];
