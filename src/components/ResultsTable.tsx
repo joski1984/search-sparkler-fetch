@@ -75,24 +75,109 @@ export const ResultsTable = ({ results, onDownloadCSV, isDownloading }: ResultsT
 
   const handleShareViaEmail = () => {
     const csvContent = generateCSVContent();
+    
+    // Create a downloadable CSV file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'business_search_results.csv');
+    
+    // Try native share API first (mobile/modern browsers)
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], 'business_search_results.csv', { type: 'text/csv' });
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          title: 'Business Search Results',
+          text: 'Here are the business search results from your query.',
+          files: [file]
+        }).catch(() => {
+          // Fallback to download + mailto
+          fallbackEmailShare(csvContent, link, url);
+        });
+        return;
+      }
+    }
+    
+    // Fallback for browsers without native share
+    fallbackEmailShare(csvContent, link, url);
+  };
+
+  const fallbackEmailShare = (csvContent: string, link: HTMLAnchorElement, url: string) => {
+    // Download the CSV file first
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    // Then open email client with instructions
     const subject = encodeURIComponent('Business Search Results');
-    const body = encodeURIComponent(`Please find the business search results attached below:\n\n${csvContent}`);
+    const body = encodeURIComponent(`Hi,
+
+Please find the business search results attached. The CSV file should have been downloaded to your device.
+
+The file contains comprehensive business data including:
+- Business names and addresses
+- Contact information
+- Ratings and reviews
+- Website links
+- Status information
+
+Best regards`);
     
     const mailtoLink = `mailto:?subject=${subject}&body=${body}`;
-    window.open(mailtoLink, '_blank');
+    window.location.href = mailtoLink;
   };
 
   const handleShareViaWhatsApp = () => {
     const csvContent = generateCSVContent();
-    const message = encodeURIComponent(`Business Search Results:\n\n${csvContent}`);
+    
+    // Create a more concise summary for WhatsApp
+    const summary = `📊 Business Search Results (${results.length} businesses found)\n\n` +
+      results.slice(0, 5).map((business, index) => 
+        `${index + 1}. ${business.name}\n⭐ ${business.rating}/5 (${business.totalReviews} reviews)\n📍 ${business.address}\n${business.phone ? `📞 ${business.phone}` : 'No phone'}\n`
+      ).join('\n') + 
+      (results.length > 5 ? `\n...and ${results.length - 5} more businesses` : '');
+    
+    const message = encodeURIComponent(summary);
     
     // Check if mobile device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
-    if (isMobile) {
-      window.open(`whatsapp://send?text=${message}`, '_blank');
-    } else {
-      window.open(`https://web.whatsapp.com/send?text=${message}`, '_blank');
+    try {
+      if (isMobile) {
+        // For mobile, try WhatsApp app first
+        window.location.href = `whatsapp://send?text=${message}`;
+      } else {
+        // For desktop, provide fallback options
+        const whatsappUrl = `https://api.whatsapp.com/send?text=${message}`;
+        
+        // Try to open WhatsApp, with fallback
+        const newWindow = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+        
+        if (!newWindow) {
+          // If popup blocked, copy to clipboard
+          navigator.clipboard.writeText(decodeURIComponent(message)).then(() => {
+            alert('WhatsApp link was blocked. The message has been copied to your clipboard. You can paste it in WhatsApp manually.');
+          }).catch(() => {
+            // Final fallback - show the text
+            const textArea = document.createElement('textarea');
+            textArea.value = decodeURIComponent(message);
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('WhatsApp link was blocked. The message has been copied to your clipboard. You can paste it in WhatsApp manually.');
+          });
+        }
+      }
+    } catch (error) {
+      // Ultimate fallback - copy to clipboard
+      navigator.clipboard.writeText(decodeURIComponent(message)).then(() => {
+        alert('Could not open WhatsApp. The message has been copied to your clipboard.');
+      }).catch(() => {
+        alert('Could not open WhatsApp or copy to clipboard. Please check your browser settings.');
+      });
     }
   };
 
