@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Download, Star, Phone, MapPin, Clock, MessageSquare, ExternalLink, Globe } from 'lucide-react';
+import { Download, Star, Phone, MapPin, Clock, MessageSquare, ExternalLink, Globe, Share2, Mail, MessageCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface BusinessResult {
@@ -33,6 +34,67 @@ interface ResultsTableProps {
 
 export const ResultsTable = ({ results, onDownloadCSV, isDownloading }: ResultsTableProps) => {
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessResult | null>(null);
+
+  const generateCSVContent = () => {
+    const headers = [
+      'Business Name',
+      'Address', 
+      'Phone',
+      'Rating',
+      'Total Reviews',
+      'Status',
+      'Website',
+      'Price Level',
+      'Latest Reviews (Top 10)'
+    ];
+
+    const csvRows = [
+      headers.join(','),
+      ...results.map(business => {
+        const reviews = business.reviews
+          .slice(0, 10)
+          .map(review => `"${review.author} (${review.rating}★): ${review.text.replace(/"/g, '""')}"`)
+          .join('; ');
+
+        return [
+          `"${business.name.replace(/"/g, '""')}"`,
+          `"${business.address.replace(/"/g, '""')}"`,
+          `"${business.phone || 'N/A'}"`,
+          business.rating.toString(),
+          business.totalReviews.toString(),
+          `"${business.status || 'Unknown'}"`,
+          `"${business.website || 'N/A'}"`,
+          `"${business.priceLevel ? '$'.repeat(business.priceLevel) : 'N/A'}"`,
+          `"${reviews}"`
+        ].join(',');
+      })
+    ];
+
+    return csvRows.join('\n');
+  };
+
+  const handleShareViaEmail = () => {
+    const csvContent = generateCSVContent();
+    const subject = encodeURIComponent('Business Search Results');
+    const body = encodeURIComponent(`Please find the business search results attached below:\n\n${csvContent}`);
+    
+    const mailtoLink = `mailto:?subject=${subject}&body=${body}`;
+    window.open(mailtoLink, '_blank');
+  };
+
+  const handleShareViaWhatsApp = () => {
+    const csvContent = generateCSVContent();
+    const message = encodeURIComponent(`Business Search Results:\n\n${csvContent}`);
+    
+    // Check if mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      window.open(`whatsapp://send?text=${message}`, '_blank');
+    } else {
+      window.open(`https://web.whatsapp.com/send?text=${message}`, '_blank');
+    }
+  };
 
   if (results.length === 0) {
     return null;
@@ -70,15 +132,39 @@ export const ResultsTable = ({ results, onDownloadCSV, isDownloading }: ResultsT
               Comprehensive business data with reviews and contact information
             </p>
           </div>
-          <Button 
-            onClick={onDownloadCSV}
-            disabled={isDownloading}
-            size="lg"
-            className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white shadow-lg hover:shadow-xl transition-all duration-300"
-          >
-            <Download className="h-5 w-5 mr-2" />
-            {isDownloading ? 'Generating...' : 'Export CSV'}
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              onClick={onDownloadCSV}
+              disabled={isDownloading}
+              size="lg"
+              className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isDownloading ? 'Generating...' : 'Export CSV'}
+            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  size="lg"
+                  className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                >
+                  <Share2 className="h-5 w-5 mr-2" />
+                  Share
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-48 bg-background border-border shadow-xl">
+                <DropdownMenuItem onClick={handleShareViaEmail} className="cursor-pointer hover:bg-muted">
+                  <Mail className="h-4 w-4 mr-2" />
+                  Share via Email
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleShareViaWhatsApp} className="cursor-pointer hover:bg-muted">
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Share via WhatsApp
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
