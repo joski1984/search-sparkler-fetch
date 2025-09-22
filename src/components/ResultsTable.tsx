@@ -248,7 +248,15 @@ The file contains comprehensive business data including:
 Best regards`);
     
     const mailtoLink = `mailto:?subject=${subject}&body=${body}`;
-    window.location.href = mailtoLink;
+
+    // Open mail client in a new tab/window to avoid iframe/navigation and mixed-content issues
+    const a = document.createElement('a');
+    a.href = mailtoLink;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleShareViaWhatsApp = () => {
