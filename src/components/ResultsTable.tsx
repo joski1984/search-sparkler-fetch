@@ -388,7 +388,12 @@ Best regards`);
             
             <DropdownMenu 
               open={shareStep !== null} 
-              onOpenChange={(open) => !open && (setShareStep(null), setSelectedFormat(null))}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setShareStep(null);
+                  setSelectedFormat(null);
+                }
+              }}
             >
               <DropdownMenuTrigger asChild>
                 <Button 
