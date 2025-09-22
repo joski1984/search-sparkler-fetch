@@ -82,6 +82,7 @@ serve(async (req) => {
     let nextPageToken: string | undefined = undefined
     let pageCount = 0
     const maxPages = 3 // Limit to 3 pages (up to 60 results) to prevent excessive API calls
+    let apiCallsCount = 0 // Track API calls for token consumption
 
     do {
       let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
@@ -94,6 +95,7 @@ serve(async (req) => {
       
       const searchResponse = await fetch(searchUrl)
       const searchData = await searchResponse.json()
+      apiCallsCount++ // Count this search API call
 
       if (searchData.status !== 'OK' && searchData.status !== 'ZERO_RESULTS') {
         console.error('Places API Error:', searchData)
@@ -117,7 +119,10 @@ serve(async (req) => {
         if (pageCount === 0) {
           // No results on first page
           return new Response(
-            JSON.stringify({ results: [] }),
+            JSON.stringify({ 
+              results: [],
+              apiCallsUsed: apiCallsCount
+            }),
             { 
               status: 200,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -148,6 +153,7 @@ serve(async (req) => {
           
           const detailsResponse = await fetch(detailsUrl)
           const detailsData = await detailsResponse.json()
+          apiCallsCount++ // Count this details API call
 
           if (detailsData.status === 'OK' && detailsData.result) {
             const details: PlaceDetailsResult = detailsData.result
@@ -202,9 +208,13 @@ serve(async (req) => {
     )
 
     console.log(`Processed ${detailedResults.length} detailed results`)
+    console.log(`Total API calls made: ${apiCallsCount}`)
 
     return new Response(
-      JSON.stringify({ results: detailedResults }),
+      JSON.stringify({ 
+        results: detailedResults,
+        apiCallsUsed: apiCallsCount
+      }),
       { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

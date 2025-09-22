@@ -29,13 +29,13 @@ const Index = () => {
         setResults(data.results);
         toast({
           title: "Search completed",
-          description: `Found ${data.results.length} businesses`,
+          description: `Found ${data.results.length} businesses • ${data.apiCallsUsed || 'Unknown'} API calls used`,
         });
       } else {
         setResults([]);
         toast({
           title: "No results",
-          description: "No businesses found for your search query",
+          description: `No businesses found for your search query • ${data?.apiCallsUsed || 1} API calls used`,
           variant: "destructive"
         });
       }
