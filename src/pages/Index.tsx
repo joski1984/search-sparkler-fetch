@@ -10,15 +10,34 @@ const Index = () => {
   const [results, setResults] = useState<BusinessResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [searchOptions, setSearchOptions] = useState({
+    maxResults: 60,
+    searchIntensity: 'low' as 'low' | 'medium' | 'high'
+  });
   const { toast } = useToast();
 
   const handleSearch = async (query: string) => {
     setIsLoading(true);
     setResults([]);
+    
+    // Show estimated API cost
+    const estimatedCalls = searchOptions.maxResults <= 60 ? 
+      Math.ceil(searchOptions.maxResults / 20) + searchOptions.maxResults : 
+      (searchOptions.searchIntensity === 'low' ? 120 : 
+       searchOptions.searchIntensity === 'medium' ? 270 : 480) + searchOptions.maxResults;
+       
+    toast({
+      title: "Search started",
+      description: `Estimated ${estimatedCalls} API calls for ${searchOptions.maxResults} results (${searchOptions.searchIntensity} intensity)`,
+    });
 
     try {
       const { data, error } = await supabase.functions.invoke('search-businesses', {
-        body: { query }
+        body: { 
+          query,
+          maxResults: searchOptions.maxResults,
+          searchIntensity: searchOptions.searchIntensity
+        }
       });
 
       if (error) {
@@ -147,7 +166,12 @@ const Index = () => {
       <section className="py-16 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="animate-slide-up" style={{ animationDelay: '0.2s' }}>
-            <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+            <SearchForm 
+              onSearch={handleSearch} 
+              isLoading={isLoading}
+              searchOptions={searchOptions}
+              onSearchOptionsChange={setSearchOptions}
+            />
           </div>
           
           <div className="mt-12 animate-slide-up" style={{ animationDelay: '0.4s' }}>

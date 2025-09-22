@@ -2,14 +2,23 @@ import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Search, Loader2, Sparkles } from 'lucide-react';
+
+interface SearchOptions {
+  maxResults: number;
+  searchIntensity: 'low' | 'medium' | 'high';
+}
 
 interface SearchFormProps {
   onSearch: (query: string) => void;
   isLoading: boolean;
+  searchOptions: SearchOptions;
+  onSearchOptionsChange: (options: SearchOptions) => void;
 }
 
-export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
+export const SearchForm = ({ onSearch, isLoading, searchOptions, onSearchOptionsChange }: SearchFormProps) => {
   const [query, setQuery] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -72,6 +81,63 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               )}
             </Button>
           </form>
+          
+          {/* Advanced Search Options */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6 bg-muted/30 rounded-xl border border-border/50">
+            <div className="space-y-2">
+              <Label htmlFor="maxResults" className="text-sm font-medium">Maximum Results</Label>
+              <Select
+                value={searchOptions.maxResults.toString()}
+                onValueChange={(value) => 
+                  onSearchOptionsChange({
+                    ...searchOptions,
+                    maxResults: parseInt(value)
+                  })
+                }
+                disabled={isLoading}
+              >
+                <SelectTrigger className="h-12">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="60">60 (Standard)</SelectItem>
+                  <SelectItem value="150">150 (Enhanced)</SelectItem>
+                  <SelectItem value="250">250 (Comprehensive)</SelectItem>
+                  <SelectItem value="400">400 (Maximum)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {searchOptions.maxResults <= 60 ? 'Standard Google Places search' : 'Enhanced grid search for more results'}
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="searchIntensity" className="text-sm font-medium">Search Intensity</Label>
+              <Select
+                value={searchOptions.searchIntensity}
+                onValueChange={(value: 'low' | 'medium' | 'high') =>
+                  onSearchOptionsChange({
+                    ...searchOptions,
+                    searchIntensity: value
+                  })
+                }
+                disabled={isLoading || searchOptions.maxResults <= 60}
+              >
+                <SelectTrigger className="h-12">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low (2x2 grid)</SelectItem>
+                  <SelectItem value="medium">Medium (3x3 grid)</SelectItem>
+                  <SelectItem value="high">High (4x4 grid)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {searchOptions.maxResults <= 60 ? 'Only available for enhanced searches' : 
+                `Grid size: ${searchOptions.searchIntensity === 'low' ? '2x2' : searchOptions.searchIntensity === 'medium' ? '3x3' : '4x4'} searches`}
+              </p>
+            </div>
+          </div>
           
           {/* Example queries */}
           <div className="text-center">

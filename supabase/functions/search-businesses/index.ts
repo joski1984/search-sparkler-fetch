@@ -42,13 +42,179 @@ interface PlaceDetailsResult extends PlaceResult {
   }>;
 }
 
+interface GeocodeResult {
+  geometry: {
+    location: { lat: number; lng: number };
+    bounds?: {
+      northeast: { lat: number; lng: number };
+      southwest: { lat: number; lng: number };
+    };
+  };
+}
+
+// Helper function for standard search (original logic)
+async function performStandardSearch(query: string, googleApiKey: string, initialApiCalls: number): Promise<PlaceResult[]> {
+  let allResults: PlaceResult[] = []
+  let nextPageToken: string | undefined = undefined
+  let pageCount = 0
+  const maxPages = 3
+
+  do {
+    let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
+    
+    if (nextPageToken) {
+      searchUrl += `&pagetoken=${nextPageToken}`
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    }
+    
+    const searchResponse = await fetch(searchUrl)
+    const searchData = await searchResponse.json()
+
+    if (searchData.status !== 'OK' && searchData.status !== 'ZERO_RESULTS') {
+      console.error('Places API Error:', searchData)
+      if (pageCount === 0) throw new Error(`Google Places API error: ${searchData.status}`)
+      break
+    }
+
+    if (searchData.status === 'ZERO_RESULTS' || !searchData.results?.length) {
+      break
+    }
+
+    allResults = allResults.concat(searchData.results)
+    nextPageToken = searchData.next_page_token
+    pageCount++
+    
+    console.log(`Standard search page ${pageCount}: Found ${searchData.results.length} places. Total: ${allResults.length}`)
+
+  } while (nextPageToken && pageCount < maxPages)
+
+  return allResults
+}
+
+// Helper function for grid-based search
+async function performGridSearch(query: string, googleApiKey: string, maxResults: number, searchIntensity: string): Promise<{results: PlaceResult[], apiCalls: number}> {
+  let apiCalls = 0
+  let allResults: PlaceResult[] = []
+  const uniquePlaceIds = new Set<string>()
+
+  // Determine grid size based on search intensity
+  const gridSizes = {
+    low: 2,    // 2x2 = 4 searches
+    medium: 3, // 3x3 = 9 searches  
+    high: 4    // 4x4 = 16 searches
+  }
+  const gridSize = gridSizes[searchIntensity as keyof typeof gridSizes] || 2
+
+  // Try to extract location from query for geocoding
+  const locationMatch = query.match(/in\s+([^,]+)(?:,\s*([^,]+))?/i)
+  let baseLocation: string = locationMatch ? locationMatch[1] + (locationMatch[2] ? `, ${locationMatch[2]}` : '') : query
+
+  console.log(`Starting grid search with ${gridSize}x${gridSize} grid for location: ${baseLocation}`)
+
+  try {
+    // Get base coordinates using geocoding
+    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(baseLocation)}&key=${googleApiKey}`
+    const geocodeResponse = await fetch(geocodeUrl)
+    const geocodeData = await geocodeResponse.json()
+    apiCalls++
+
+    if (geocodeData.status !== 'OK' || !geocodeData.results?.length) {
+      console.log('Geocoding failed, falling back to standard search')
+      const results = await performStandardSearch(query, googleApiKey, apiCalls)
+      return { results, apiCalls: apiCalls + Math.ceil(results.length / 20) + results.length }
+    }
+
+    const baseCoords = geocodeData.results[0].geometry.location
+    const bounds = geocodeData.results[0].geometry.bounds
+
+    // Calculate grid offsets based on bounds or default radius
+    let latOffset = 0.01  // Default ~1km
+    let lngOffset = 0.01
+    
+    if (bounds) {
+      latOffset = (bounds.northeast.lat - bounds.southwest.lat) / (gridSize * 2)
+      lngOffset = (bounds.northeast.lng - bounds.southwest.lng) / (gridSize * 2)
+    }
+
+    console.log(`Base coordinates: ${baseCoords.lat}, ${baseCoords.lng}`)
+    console.log(`Grid offsets: lat=${latOffset.toFixed(4)}, lng=${lngOffset.toFixed(4)}`)
+
+    // Perform grid searches
+    const gridPromises: Promise<PlaceResult[]>[] = []
+    
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        const offsetLat = baseCoords.lat + (i - gridSize/2 + 0.5) * latOffset
+        const offsetLng = baseCoords.lng + (j - gridSize/2 + 0.5) * lngOffset
+        
+        const gridPromise = performGridTileSearch(query, googleApiKey, offsetLat, offsetLng, uniquePlaceIds)
+        gridPromises.push(gridPromise)
+      }
+    }
+
+    // Execute all grid searches in parallel
+    const gridResults = await Promise.all(gridPromises)
+    apiCalls += gridSize * gridSize * 3 // Estimate 3 calls per tile (search + pages)
+
+    // Combine and deduplicate results
+    for (const tileResults of gridResults) {
+      for (const place of tileResults) {
+        if (!uniquePlaceIds.has(place.place_id)) {
+          uniquePlaceIds.add(place.place_id)
+          allResults.push(place)
+          
+          if (allResults.length >= maxResults) {
+            console.log(`Reached maxResults limit of ${maxResults}`)
+            break
+          }
+        }
+      }
+      if (allResults.length >= maxResults) break
+    }
+
+    console.log(`Grid search completed: ${allResults.length} unique results from ${gridSize}x${gridSize} grid`)
+    return { results: allResults, apiCalls }
+
+  } catch (error) {
+    console.error('Grid search failed, falling back to standard search:', error)
+    const results = await performStandardSearch(query, googleApiKey, apiCalls)
+    return { results, apiCalls: apiCalls + Math.ceil(results.length / 20) + results.length }
+  }
+}
+
+// Helper function for individual grid tile search
+async function performGridTileSearch(query: string, googleApiKey: string, lat: number, lng: number, existingPlaceIds: Set<string>): Promise<PlaceResult[]> {
+  const results: PlaceResult[] = []
+  
+  try {
+    // Use location bias to focus search on this grid tile
+    const locationBias = `point:${lat},${lng}`
+    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&locationbias=${locationBias}&key=${googleApiKey}`
+    
+    const searchResponse = await fetch(searchUrl)
+    const searchData = await searchResponse.json()
+
+    if (searchData.status === 'OK' && searchData.results?.length) {
+      for (const place of searchData.results) {
+        if (!existingPlaceIds.has(place.place_id)) {
+          results.push(place)
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Grid tile search failed for ${lat},${lng}:`, error)
+  }
+
+  return results
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { query } = await req.json()
+    const { query, maxResults = 60, searchIntensity = 'low' } = await req.json()
     
     if (!query) {
       return new Response(
@@ -76,74 +242,38 @@ serve(async (req) => {
     }
 
     console.log('Searching for:', query)
+    console.log('Max results requested:', maxResults)
+    console.log('Search intensity:', searchIntensity)
 
-    // Step 1: Search for places using Text Search API with pagination
+    let apiCallsCount = 0
     let allResults: PlaceResult[] = []
-    let nextPageToken: string | undefined = undefined
-    let pageCount = 0
-    const maxPages = 3 // Limit to 3 pages (up to 60 results) to prevent excessive API calls
-    let apiCallsCount = 0 // Track API calls for token consumption
 
-    do {
-      let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
-      
-      if (nextPageToken) {
-        searchUrl += `&pagetoken=${nextPageToken}`
-        // Google requires a short delay before using next_page_token
-        await new Promise(resolve => setTimeout(resolve, 2000))
-      }
-      
-      const searchResponse = await fetch(searchUrl)
-      const searchData = await searchResponse.json()
-      apiCallsCount++ // Count this search API call
+    // Determine if we need grid search based on maxResults
+    if (maxResults <= 60) {
+      // Standard search for <= 60 results
+      allResults = await performStandardSearch(query, googleApiKey, apiCallsCount)
+      apiCallsCount = allResults.length > 0 ? Math.ceil(allResults.length / 20) + allResults.length : 1
+    } else {
+      // Grid search for > 60 results
+      const gridResult = await performGridSearch(query, googleApiKey, maxResults, searchIntensity)
+      allResults = gridResult.results
+      apiCallsCount = gridResult.apiCalls
+    }
 
-      if (searchData.status !== 'OK' && searchData.status !== 'ZERO_RESULTS') {
-        console.error('Places API Error:', searchData)
-        if (pageCount === 0) {
-          // If first page fails, return error
-          return new Response(
-            JSON.stringify({ error: `Google Places API error: ${searchData.status}` }),
-            { 
-              status: 500,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            }
-          )
-        } else {
-          // If subsequent page fails, break and use what we have
-          console.log('Breaking due to API error on page', pageCount + 1)
-          break
+    if (allResults.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          results: [],
+          apiCallsUsed: apiCallsCount
+        }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      }
+      )
+    }
 
-      if (searchData.status === 'ZERO_RESULTS' || !searchData.results?.length) {
-        if (pageCount === 0) {
-          // No results on first page
-          return new Response(
-            JSON.stringify({ 
-              results: [],
-              apiCallsUsed: apiCallsCount
-            }),
-            { 
-              status: 200,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            }
-          )
-        } else {
-          // No more results on subsequent pages
-          break
-        }
-      }
-
-      // Add results from this page
-      allResults = allResults.concat(searchData.results)
-      nextPageToken = searchData.next_page_token
-      pageCount++
-      
-      console.log(`Page ${pageCount}: Found ${searchData.results.length} places. Total so far: ${allResults.length}`)
-
-    } while (nextPageToken && pageCount < maxPages)
-
-    console.log(`Completed search across ${pageCount} pages. Total results: ${allResults.length}`)
+    console.log(`Total unique results found: ${allResults.length}`)
 
     // Step 2: Get detailed information for each place including reviews
     const detailedResults = await Promise.all(
