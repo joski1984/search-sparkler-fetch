@@ -412,7 +412,7 @@ Best regards`);
                       Choose Format
                     </div>
                     <DropdownMenuItem 
-                      onClick={() => handleFormatSelect('csv')} 
+                      onSelect={(e) => { e.preventDefault(); handleFormatSelect('csv'); }} 
                       className="cursor-pointer hover:bg-muted"
                     >
                       <FileText className="h-4 w-4 mr-3" />
@@ -422,7 +422,7 @@ Best regards`);
                       </div>
                     </DropdownMenuItem>
                     <DropdownMenuItem 
-                      onClick={() => handleFormatSelect('excel')} 
+                      onSelect={(e) => { e.preventDefault(); handleFormatSelect('excel'); }} 
                       className="cursor-pointer hover:bg-muted"
                     >
                       <FileSpreadsheet className="h-4 w-4 mr-3" />
@@ -432,7 +432,7 @@ Best regards`);
                       </div>
                     </DropdownMenuItem>
                     <DropdownMenuItem 
-                      onClick={() => handleFormatSelect('pdf')} 
+                      onSelect={(e) => { e.preventDefault(); handleFormatSelect('pdf'); }} 
                       className="cursor-pointer hover:bg-muted"
                     >
                       <File className="h-4 w-4 mr-3" />
