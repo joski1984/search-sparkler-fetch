@@ -106,8 +106,37 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
   const gridSize = gridSizes[searchIntensity as keyof typeof gridSizes] || 2
 
   // Try to extract location from query for geocoding
-  const locationMatch = query.match(/in\s+([^,]+)(?:,\s*([^,]+))?/i)
-  let baseLocation: string = locationMatch ? locationMatch[1] + (locationMatch[2] ? `, ${locationMatch[2]}` : '') : query
+  let baseLocation: string = query
+  
+  // Try multiple patterns to extract location
+  const patterns = [
+    /in\s+([^,]+)(?:,\s*([^,]+))?/i,  // "restaurants in New York"
+    /([^,]+),\s*([^,]+)/,              // "New York, NY"
+    /([a-zA-Z\s]+(?:city|town|village|area|district|state|country))/i, // Contains location words
+  ]
+  
+  for (const pattern of patterns) {
+    const match = query.match(pattern)
+    if (match) {
+      if (pattern.toString().includes('in\\s+')) {
+        baseLocation = match[1] + (match[2] ? `, ${match[2]}` : '')
+      } else if (pattern.toString().includes(',')) {
+        baseLocation = `${match[1]}, ${match[2]}`
+      } else {
+        baseLocation = match[1]
+      }
+      break
+    }
+  }
+  
+  // If no specific location pattern found, use the whole query as location
+  if (baseLocation === query) {
+    const words = query.split(' ')
+    // Try to identify the location part (usually the last part after business type)
+    if (words.length > 2) {
+      baseLocation = words.slice(-2).join(' ') // Take last 2 words as potential location
+    }
+  }
 
   console.log(`Starting grid search with ${gridSize}x${gridSize} grid for location: ${baseLocation}`)
 
@@ -119,9 +148,23 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     apiCalls++
 
     if (geocodeData.status !== 'OK' || !geocodeData.results?.length) {
-      console.log('Geocoding failed, falling back to standard search')
-      const results = await performStandardSearch(query, googleApiKey, apiCalls)
-      return { results, apiCalls: apiCalls + Math.ceil(results.length / 20) + results.length }
+      console.log(`Geocoding failed for "${baseLocation}", trying alternative approaches`)
+      
+      // Try with a simpler location query
+      const simpleLocation = baseLocation.split(' ')[0] // Try just first word
+      const fallbackGeocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(simpleLocation)}&key=${googleApiKey}`
+      const fallbackResponse = await fetch(fallbackGeocodeUrl)
+      const fallbackData = await fallbackResponse.json()
+      apiCalls++
+      
+      if (fallbackData.status !== 'OK' || !fallbackData.results?.length) {
+        console.log('All geocoding attempts failed, falling back to standard search')
+        const results = await performStandardSearch(query, googleApiKey, apiCalls)
+        return { results, apiCalls: apiCalls + 3 + results.length } // Estimate: 3 search calls + details calls
+      }
+      
+      // Use fallback geocoding result
+      geocodeData.results = fallbackData.results
     }
 
     const baseCoords = geocodeData.results[0].geometry.location
@@ -154,7 +197,7 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
 
     // Execute all grid searches in parallel
     const gridResults = await Promise.all(gridPromises)
-    apiCalls += gridSize * gridSize * 3 // Estimate 3 calls per tile (search + pages)
+    apiCalls += gridSize * gridSize // 1 call per tile for grid search
 
     // Combine and deduplicate results
     for (const tileResults of gridResults) {
@@ -178,7 +221,7 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
   } catch (error) {
     console.error('Grid search failed, falling back to standard search:', error)
     const results = await performStandardSearch(query, googleApiKey, apiCalls)
-    return { results, apiCalls: apiCalls + Math.ceil(results.length / 20) + results.length }
+    return { results, apiCalls: apiCalls + 3 + results.length } // Estimate: 3 search calls + details calls
   }
 }
 
