@@ -295,7 +295,7 @@ serve(async (req) => {
     if (maxResults <= 60) {
       // Standard search for <= 60 results
       allResults = await performStandardSearch(query, googleApiKey, apiCallsCount)
-      apiCallsCount = allResults.length > 0 ? Math.ceil(allResults.length / 20) + allResults.length : 1
+      apiCallsCount = allResults.length > 0 ? Math.ceil(allResults.length / 20) : 1 // Only count search API calls, not details
     } else {
       // Grid search for > 60 results
       const gridResult = await performGridSearch(query, googleApiKey, maxResults, searchIntensity)
