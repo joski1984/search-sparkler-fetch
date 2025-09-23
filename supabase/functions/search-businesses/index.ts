@@ -138,6 +138,18 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     }
   }
 
+  // Derive search term by removing the location part from the query (e.g., "restaurants" from "restaurants in New York")
+  let searchTerm = query
+    .replace(new RegExp(`\\s+in\\s+${baseLocation.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i'), '')
+    .replace(/in\s+[^,]+(?:,\s*[^,]+)?/i, '')
+    .trim()
+  if (!searchTerm || searchTerm.length < 2) {
+    // Fallback: take first word which is often the category
+    searchTerm = query.split(',')[0].split(' ')[0]
+  }
+
+  console.log(`Grid search parsed -> searchTerm: "${searchTerm}", location: "${baseLocation}"`)
+
   console.log(`Starting grid search with ${gridSize}x${gridSize} grid for location: ${baseLocation}`)
 
   try {
@@ -182,18 +194,27 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     console.log(`Base coordinates: ${baseCoords.lat}, ${baseCoords.lng}`)
     console.log(`Grid offsets: lat=${latOffset.toFixed(4)}, lng=${lngOffset.toFixed(4)}`)
 
-    // Perform grid searches
-    const gridPromises: Promise<PlaceResult[]>[] = []
-    
-    for (let i = 0; i < gridSize; i++) {
-      for (let j = 0; j < gridSize; j++) {
-        const offsetLat = baseCoords.lat + (i - gridSize/2 + 0.5) * latOffset
-        const offsetLng = baseCoords.lng + (j - gridSize/2 + 0.5) * lngOffset
-        
-        const gridPromise = performGridTileSearch(query, googleApiKey, offsetLat, offsetLng, uniquePlaceIds)
-        gridPromises.push(gridPromise)
-      }
+  // Perform grid searches
+  const gridPromises: Promise<PlaceResult[]>[] = []
+  
+  // Estimate tile radius based on bounds/offsets
+  const metersPerDegLat = 111320
+  const metersPerDegLng = 111320 * Math.cos(baseCoords.lat * Math.PI / 180)
+  const approxRadiusMeters = Math.max(
+    Math.abs(latOffset) * metersPerDegLat,
+    Math.abs(lngOffset) * metersPerDegLng
+  ) * 1.2 // Slightly expand to cover gaps
+  const tileRadius = Math.min(Math.max(Math.floor(approxRadiusMeters), 800), 50000) // clamp 0.8km - 50km
+  
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      const offsetLat = baseCoords.lat + (i - gridSize/2 + 0.5) * latOffset
+      const offsetLng = baseCoords.lng + (j - gridSize/2 + 0.5) * lngOffset
+      
+      const gridPromise = performGridTileSearch(searchTerm, googleApiKey, offsetLat, offsetLng, tileRadius, uniquePlaceIds)
+      gridPromises.push(gridPromise)
     }
+  }
 
     // Execute all grid searches in parallel
     const gridResults = await Promise.all(gridPromises)
@@ -226,24 +247,41 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
 }
 
 // Helper function for individual grid tile search
-async function performGridTileSearch(query: string, googleApiKey: string, lat: number, lng: number, existingPlaceIds: Set<string>): Promise<PlaceResult[]> {
+async function performGridTileSearch(query: string, googleApiKey: string, lat: number, lng: number, radius: number, existingPlaceIds: Set<string>): Promise<PlaceResult[]> {
   const results: PlaceResult[] = []
-  
-  try {
-    // Use location bias to focus search on this grid tile
-    const locationBias = `point:${lat},${lng}`
-    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&locationbias=${locationBias}&key=${googleApiKey}`
-    
-    const searchResponse = await fetch(searchUrl)
-    const searchData = await searchResponse.json()
 
-    if (searchData.status === 'OK' && searchData.results?.length) {
-      for (const place of searchData.results) {
-        if (!existingPlaceIds.has(place.place_id)) {
-          results.push(place)
-        }
+  // Helper to delay for next_page_token readiness
+  const wait = (ms: number) => new Promise((res) => setTimeout(res, ms))
+
+  try {
+    let nextPageToken: string | undefined = undefined
+    let pageCount = 0
+    const maxPages = 3
+
+    do {
+      let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&location=${lat},${lng}&radius=${radius}&key=${googleApiKey}`
+      if (nextPageToken) {
+        searchUrl += `&pagetoken=${nextPageToken}`
+        await wait(2000)
       }
-    }
+
+      const searchResponse = await fetch(searchUrl)
+      const searchData = await searchResponse.json()
+
+      if (searchData.status === 'OK' && searchData.results?.length) {
+        for (const place of searchData.results) {
+          if (!existingPlaceIds.has(place.place_id)) {
+            results.push(place)
+          }
+        }
+        nextPageToken = searchData.next_page_token
+      } else {
+        nextPageToken = undefined
+      }
+
+      pageCount++
+    } while (nextPageToken && pageCount < maxPages)
+
   } catch (error) {
     console.error(`Grid tile search failed for ${lat},${lng}:`, error)
   }
@@ -326,7 +364,6 @@ serve(async (req) => {
           
           const detailsResponse = await fetch(detailsUrl)
           const detailsData = await detailsResponse.json()
-          apiCallsCount++ // Count this details API call
 
           if (detailsData.status === 'OK' && detailsData.result) {
             const details: PlaceDetailsResult = detailsData.result
