@@ -259,7 +259,7 @@ async function performGridTileSearch(query: string, googleApiKey: string, lat: n
     const maxPages = 3
 
     do {
-      let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&location=${lat},${lng}&radius=${radius}&key=${googleApiKey}`
+      let searchUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?keyword=${encodeURIComponent(query)}&location=${lat},${lng}&radius=${radius}&key=${googleApiKey}`
       if (nextPageToken) {
         searchUrl += `&pagetoken=${nextPageToken}`
         await wait(2000)
@@ -275,7 +275,11 @@ async function performGridTileSearch(query: string, googleApiKey: string, lat: n
           }
         }
         nextPageToken = searchData.next_page_token
+      } else if (searchData.status === 'ZERO_RESULTS') {
+        nextPageToken = undefined
       } else {
+        // Any other status: break to avoid wasting calls
+        console.log('Nearby search status:', searchData.status)
         nextPageToken = undefined
       }
 

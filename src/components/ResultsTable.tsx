@@ -503,6 +503,7 @@ Best regards`);
             <Table>
               <TableHeader className="bg-muted/20">
                 <TableRow className="border-b-2">
+                  <TableHead className="font-semibold text-foreground">#</TableHead>
                   <TableHead className="font-semibold text-foreground">Business Name</TableHead>
                   <TableHead className="font-semibold text-foreground">Location</TableHead>
                   <TableHead className="font-semibold text-foreground">Contact</TableHead>
@@ -519,6 +520,9 @@ Best regards`);
                     className="hover:bg-muted/30 transition-colors duration-200 animate-fade-in"
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
+                    <TableCell className="py-4 w-12 text-center text-muted-foreground font-medium">
+                      {index + 1}
+                    </TableCell>
                     <TableCell className="py-4">
                       <div className="space-y-1">
                         <div className="font-semibold text-foreground">{business.name}</div>
