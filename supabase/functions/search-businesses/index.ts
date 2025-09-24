@@ -97,7 +97,7 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
   let allResults: PlaceResult[] = []
   const uniquePlaceIds = new Set<string>()
 
-  // Determine grid size based on search intensity
+  // Determine grid size based on search intensity  
   const gridSizes = {
     low: 2,    // 2x2 = 4 searches
     medium: 3, // 3x3 = 9 searches  
@@ -182,47 +182,72 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     const baseCoords = geocodeData.results[0].geometry.location
     const bounds = geocodeData.results[0].geometry.bounds
 
-    // Calculate grid offsets based on bounds or default radius
-    let latOffset = 0.01  // Default ~1km
-    let lngOffset = 0.01
+    // PHASE 1 FIX: Compute proper non-overlapping rectangular bounds
+    let southwest: {lat: number, lng: number}
+    let northeast: {lat: number, lng: number}
     
     if (bounds) {
-      latOffset = (bounds.northeast.lat - bounds.southwest.lat) / (gridSize * 2)
-      lngOffset = (bounds.northeast.lng - bounds.southwest.lng) / (gridSize * 2)
+      southwest = bounds.southwest
+      northeast = bounds.northeast
+    } else {
+      // Fallback: create bounds with 10km radius around baseCoords
+      const radiusInDegrees = 0.09 // ~10km
+      southwest = { lat: baseCoords.lat - radiusInDegrees, lng: baseCoords.lng - radiusInDegrees }
+      northeast = { lat: baseCoords.lat + radiusInDegrees, lng: baseCoords.lng + radiusInDegrees }
     }
+
+    // Calculate non-overlapping tile dimensions
+    const latSpan = northeast.lat - southwest.lat
+    const lngSpan = northeast.lng - southwest.lng
+    const cellLat = latSpan / gridSize
+    const cellLng = lngSpan / gridSize
 
     console.log(`Base coordinates: ${baseCoords.lat}, ${baseCoords.lng}`)
-    console.log(`Grid offsets: lat=${latOffset.toFixed(4)}, lng=${lngOffset.toFixed(4)}`)
+    console.log(`Bounds: SW(${southwest.lat.toFixed(4)}, ${southwest.lng.toFixed(4)}) to NE(${northeast.lat.toFixed(4)}, ${northeast.lng.toFixed(4)})`)
+    console.log(`Grid cell size: ${cellLat.toFixed(4)} lat x ${cellLng.toFixed(4)} lng`)
 
-  // Perform grid searches
-  const gridPromises: Promise<PlaceResult[]>[] = []
-  
-  // Estimate tile radius based on bounds/offsets
-  const metersPerDegLat = 111320
-  const metersPerDegLng = 111320 * Math.cos(baseCoords.lat * Math.PI / 180)
-  const approxRadiusMeters = Math.max(
-    Math.abs(latOffset) * metersPerDegLat,
-    Math.abs(lngOffset) * metersPerDegLng
-  ) * 1.2 // Slightly expand to cover gaps
-  const tileRadius = Math.min(Math.max(Math.floor(approxRadiusMeters), 800), 50000) // clamp 0.8km - 50km
-  
-  for (let i = 0; i < gridSize; i++) {
-    for (let j = 0; j < gridSize; j++) {
-      const offsetLat = baseCoords.lat + (i - gridSize/2 + 0.5) * latOffset
-      const offsetLng = baseCoords.lng + (j - gridSize/2 + 0.5) * lngOffset
-      
-      const gridPromise = performGridTileSearch(searchTerm, googleApiKey, offsetLat, offsetLng, tileRadius, uniquePlaceIds)
-      gridPromises.push(gridPromise)
+    // PHASE 1 FIX: Create non-overlapping rectangular tiles and use textsearch with locationbias=rectangle
+    const tilePromises: Promise<{results: PlaceResult[], apiCalls: number, tileInfo: any}>[] = []
+    
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        // Calculate exact tile boundaries (non-overlapping)
+        const tileSW = {
+          lat: southwest.lat + i * cellLat,
+          lng: southwest.lng + j * cellLng
+        }
+        const tileNE = {
+          lat: tileSW.lat + cellLat,
+          lng: tileSW.lng + cellLng
+        }
+        
+        const tileIndex = i * gridSize + j
+        const tilePromise = performGridTileTextSearch(
+          searchTerm, 
+          googleApiKey, 
+          tileSW, 
+          tileNE, 
+          tileIndex, 
+          uniquePlaceIds
+        )
+        tilePromises.push(tilePromise)
+      }
     }
-  }
 
-    // Execute all grid searches in parallel
-    const gridResults = await Promise.all(gridPromises)
-    apiCalls += gridSize * gridSize // 1 call per tile for grid search
-
-    // Combine and deduplicate results
-    for (const tileResults of gridResults) {
-      for (const place of tileResults) {
+    // Execute all tile searches in parallel
+    console.log(`Executing ${tilePromises.length} tile searches in parallel...`)
+    const tileResults = await Promise.all(tilePromises)
+    
+    // Calculate total API calls and combine results
+    let totalTileApiCalls = 0
+    const tileLogs: any[] = []
+    
+    for (const tileResult of tileResults) {
+      totalTileApiCalls += tileResult.apiCalls
+      tileLogs.push(tileResult.tileInfo)
+      
+      // Add unique results from this tile
+      for (const place of tileResult.results) {
         if (!uniquePlaceIds.has(place.place_id)) {
           uniquePlaceIds.add(place.place_id)
           allResults.push(place)
@@ -235,8 +260,19 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
       }
       if (allResults.length >= maxResults) break
     }
+    
+    apiCalls += totalTileApiCalls
 
-    console.log(`Grid search completed: ${allResults.length} unique results from ${gridSize}x${gridSize} grid`)
+    // Log comprehensive results
+    console.log(`=== GRID SEARCH RESULTS ===`)
+    console.log(`Tiles created: ${gridSize}x${gridSize} = ${tilePromises.length}`)
+    console.log(`Total API calls: ${apiCalls} (geocoding: 1, tile searches: ${totalTileApiCalls})`)
+    console.log(`Unique results found: ${allResults.length}`)
+    console.log(`Tile details:`)
+    tileLogs.forEach((log, index) => {
+      console.log(`  Tile ${log.tileIndex}: SW(${log.sw.lat.toFixed(4)}, ${log.sw.lng.toFixed(4)}) NE(${log.ne.lat.toFixed(4)}, ${log.ne.lng.toFixed(4)}) -> ${log.rawResults} raw, ${log.uniqueNew} new unique`)
+    })
+
     return { results: allResults, apiCalls }
 
   } catch (error) {
@@ -246,9 +282,19 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
   }
 }
 
-// Helper function for individual grid tile search
-async function performGridTileSearch(query: string, googleApiKey: string, lat: number, lng: number, radius: number, existingPlaceIds: Set<string>): Promise<PlaceResult[]> {
+// PHASE 1 FIX: New tile search using textsearch with locationbias=rectangle
+async function performGridTileTextSearch(
+  query: string, 
+  googleApiKey: string, 
+  southwest: {lat: number, lng: number}, 
+  northeast: {lat: number, lng: number}, 
+  tileIndex: number,
+  existingPlaceIds: Set<string>
+): Promise<{results: PlaceResult[], apiCalls: number, tileInfo: any}> {
   const results: PlaceResult[] = []
+  let apiCalls = 0
+  let rawResultsCount = 0
+  let uniqueNewCount = 0
 
   // Helper to delay for next_page_token readiness
   const wait = (ms: number) => new Promise((res) => setTimeout(res, ms))
@@ -259,27 +305,36 @@ async function performGridTileSearch(query: string, googleApiKey: string, lat: n
     const maxPages = 3
 
     do {
-      let searchUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?keyword=${encodeURIComponent(query)}&location=${lat},${lng}&radius=${radius}&key=${googleApiKey}`
+      // PHASE 1 KEY CHANGE: Use textsearch with locationbias=rectangle instead of nearbysearch
+      let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&locationbias=rectangle:${southwest.lat},${southwest.lng}|${northeast.lat},${northeast.lng}&key=${googleApiKey}`
+      
       if (nextPageToken) {
         searchUrl += `&pagetoken=${nextPageToken}`
-        await wait(2000)
+        await wait(2200) // Wait slightly longer for page token
       }
 
       const searchResponse = await fetch(searchUrl)
       const searchData = await searchResponse.json()
+      apiCalls++
 
       if (searchData.status === 'OK' && searchData.results?.length) {
+        rawResultsCount += searchData.results.length
+        
         for (const place of searchData.results) {
+          // Add to tile results regardless of global uniqueness for accurate counting
+          results.push(place)
+          
+          // Count as unique new if not seen globally
           if (!existingPlaceIds.has(place.place_id)) {
-            results.push(place)
+            uniqueNewCount++
           }
         }
         nextPageToken = searchData.next_page_token
       } else if (searchData.status === 'ZERO_RESULTS') {
         nextPageToken = undefined
       } else {
-        // Any other status: break to avoid wasting calls
-        console.log('Nearby search status:', searchData.status)
+        // Log other statuses and break to avoid wasting calls
+        console.log(`Tile ${tileIndex} textsearch status: ${searchData.status}`)
         nextPageToken = undefined
       }
 
@@ -287,10 +342,19 @@ async function performGridTileSearch(query: string, googleApiKey: string, lat: n
     } while (nextPageToken && pageCount < maxPages)
 
   } catch (error) {
-    console.error(`Grid tile search failed for ${lat},${lng}:`, error)
+    console.error(`Grid tile textsearch failed for tile ${tileIndex}:`, error)
   }
 
-  return results
+  const tileInfo = {
+    tileIndex,
+    sw: southwest,
+    ne: northeast,
+    rawResults: rawResultsCount,
+    uniqueNew: uniqueNewCount,
+    apiCalls
+  }
+
+  return { results, apiCalls, tileInfo }
 }
 
 serve(async (req) => {
