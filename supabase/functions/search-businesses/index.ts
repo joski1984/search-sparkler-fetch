@@ -153,30 +153,40 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
   console.log(`Starting grid search with ${gridSize}x${gridSize} grid for location: ${baseLocation}`)
 
   try {
-    // Get base coordinates using geocoding
-    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(baseLocation)}&key=${googleApiKey}`
-    const geocodeResponse = await fetch(geocodeUrl)
-    const geocodeData = await geocodeResponse.json()
-    apiCalls++
+    // Enhanced geocoding with multiple fallback strategies
+    let geocodeData: any = null
+    const geocodingAttempts = [
+      baseLocation,                           // Original: "bangalore"
+      `${baseLocation}, India`,              // Country fallback: "bangalore, India" 
+      baseLocation.split(' ')[0],            // First word: "bangalore"
+      `${baseLocation.split(' ')[0]}, India` // First word + country: "bangalore, India"
+    ]
 
-    if (geocodeData.status !== 'OK' || !geocodeData.results?.length) {
-      console.log(`Geocoding failed for "${baseLocation}", trying alternative approaches`)
+    console.log(`Starting geocoding attempts for: "${baseLocation}"`)
+    
+    for (let i = 0; i < geocodingAttempts.length; i++) {
+      const attempt = geocodingAttempts[i]
+      console.log(`Geocoding attempt ${i + 1}: "${attempt}"`)
       
-      // Try with a simpler location query
-      const simpleLocation = baseLocation.split(' ')[0] // Try just first word
-      const fallbackGeocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(simpleLocation)}&key=${googleApiKey}`
-      const fallbackResponse = await fetch(fallbackGeocodeUrl)
-      const fallbackData = await fallbackResponse.json()
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(attempt)}&key=${googleApiKey}`
+      const geocodeResponse = await fetch(geocodeUrl)
+      const attemptData = await geocodeResponse.json()
       apiCalls++
-      
-      if (fallbackData.status !== 'OK' || !fallbackData.results?.length) {
-        console.log('All geocoding attempts failed, falling back to standard search')
-        const results = await performStandardSearch(query, googleApiKey, apiCalls)
-        return { results, apiCalls: apiCalls + 3 + results.length } // Estimate: 3 search calls + details calls
+
+      if (attemptData.status === 'OK' && attemptData.results?.length > 0) {
+        geocodeData = attemptData
+        console.log(`✓ Geocoding successful on attempt ${i + 1}: ${attempt}`)
+        break
+      } else {
+        console.log(`✗ Geocoding failed for attempt ${i + 1}: ${attempt} (status: ${attemptData.status})`)
       }
-      
-      // Use fallback geocoding result
-      geocodeData.results = fallbackData.results
+    }
+
+    // If all geocoding attempts failed, fall back to standard search
+    if (!geocodeData) {
+      console.log('All geocoding attempts failed, falling back to standard search')
+      const results = await performStandardSearch(query, googleApiKey, apiCalls)
+      return { results, apiCalls: apiCalls + 3 + results.length }
     }
 
     const baseCoords = geocodeData.results[0].geometry.location
@@ -189,11 +199,13 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     if (bounds) {
       southwest = bounds.southwest
       northeast = bounds.northeast
+      console.log(`Using geocoded bounds from API`)
     } else {
-      // Fallback: create bounds with 10km radius around baseCoords
-      const radiusInDegrees = 0.09 // ~10km
+      // Create artificial bounding box ±0.25° around baseCoords (~25km radius)
+      const radiusInDegrees = 0.25
       southwest = { lat: baseCoords.lat - radiusInDegrees, lng: baseCoords.lng - radiusInDegrees }
       northeast = { lat: baseCoords.lat + radiusInDegrees, lng: baseCoords.lng + radiusInDegrees }
+      console.log(`Created artificial bounds ±${radiusInDegrees}° around base coordinates`)
     }
 
     // Calculate non-overlapping tile dimensions
