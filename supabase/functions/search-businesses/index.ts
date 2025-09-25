@@ -53,11 +53,10 @@ interface GeocodeResult {
 }
 
 // Helper function for standard search (original logic)
-async function performStandardSearch(query: string, googleApiKey: string, initialApiCalls: number): Promise<PlaceResult[]> {
+async function performStandardSearch(query: string, googleApiKey: string, initialApiCalls: number, maxResults: number = 200): Promise<PlaceResult[]> {
   let allResults: PlaceResult[] = []
   let nextPageToken: string | undefined = undefined
   let pageCount = 0
-  const maxPages = 3
 
   do {
     let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${googleApiKey}`
@@ -86,7 +85,14 @@ async function performStandardSearch(query: string, googleApiKey: string, initia
     
     console.log(`Standard search page ${pageCount}: Found ${searchData.results.length} places. Total: ${allResults.length}`)
 
-  } while (nextPageToken && pageCount < maxPages)
+    // Stop if we've reached maxResults
+    if (allResults.length >= maxResults) {
+      console.log(`Reached maxResults limit of ${maxResults}, stopping pagination`)
+      allResults = allResults.slice(0, maxResults)
+      break
+    }
+
+  } while (nextPageToken)
 
   return allResults
 }
@@ -185,7 +191,7 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
     // If all geocoding attempts failed, fall back to standard search
     if (!geocodeData) {
       console.log('All geocoding attempts failed, falling back to standard search')
-      const results = await performStandardSearch(query, googleApiKey, apiCalls)
+      const results = await performStandardSearch(query, googleApiKey, apiCalls, maxResults)
       return { results, apiCalls: apiCalls + 3 + results.length }
     }
 
@@ -289,7 +295,7 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
 
   } catch (error) {
     console.error('Grid search failed, falling back to standard search:', error)
-    const results = await performStandardSearch(query, googleApiKey, apiCalls)
+    const results = await performStandardSearch(query, googleApiKey, apiCalls, maxResults)
     return { results, apiCalls: apiCalls + 3 + results.length } // Estimate: 3 search calls + details calls
   }
 }
@@ -301,7 +307,8 @@ async function performGridTileTextSearch(
   southwest: {lat: number, lng: number}, 
   northeast: {lat: number, lng: number}, 
   tileIndex: number,
-  existingPlaceIds: Set<string>
+  existingPlaceIds: Set<string>,
+  maxResultsPerTile: number = 100
 ): Promise<{results: PlaceResult[], apiCalls: number, tileInfo: any}> {
   const results: PlaceResult[] = []
   let apiCalls = 0
@@ -314,7 +321,6 @@ async function performGridTileTextSearch(
   try {
     let nextPageToken: string | undefined = undefined
     let pageCount = 0
-    const maxPages = 3
 
     do {
       // PHASE 1 KEY CHANGE: Use textsearch with locationbias=rectangle instead of nearbysearch
@@ -340,6 +346,13 @@ async function performGridTileTextSearch(
           if (!existingPlaceIds.has(place.place_id)) {
             uniqueNewCount++
           }
+
+          // Stop if we've reached the per-tile limit
+          if (results.length >= maxResultsPerTile) {
+            console.log(`Tile ${tileIndex} reached maxResultsPerTile limit of ${maxResultsPerTile}`)
+            nextPageToken = undefined
+            break
+          }
         }
         nextPageToken = searchData.next_page_token
       } else if (searchData.status === 'ZERO_RESULTS') {
@@ -351,7 +364,7 @@ async function performGridTileTextSearch(
       }
 
       pageCount++
-    } while (nextPageToken && pageCount < maxPages)
+    } while (nextPageToken && results.length < maxResultsPerTile)
 
   } catch (error) {
     console.error(`Grid tile textsearch failed for tile ${tileIndex}:`, error)
@@ -363,7 +376,8 @@ async function performGridTileTextSearch(
     ne: northeast,
     rawResults: rawResultsCount,
     uniqueNew: uniqueNewCount,
-    apiCalls
+    apiCalls,
+    pages: Math.ceil(results.length / 20) // Estimate pages fetched
   }
 
   return { results, apiCalls, tileInfo }
@@ -412,7 +426,7 @@ serve(async (req) => {
     // Determine if we need grid search based on maxResults
     if (maxResults <= 60) {
       // Standard search for <= 60 results
-      allResults = await performStandardSearch(query, googleApiKey, apiCallsCount)
+      allResults = await performStandardSearch(query, googleApiKey, apiCallsCount, maxResults)
       apiCallsCount = allResults.length > 0 ? Math.ceil(allResults.length / 20) : 1 // Only count search API calls, not details
     } else {
       // Grid search for > 60 results
