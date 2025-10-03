@@ -179,14 +179,47 @@ async function performGridSearch(query: string, googleApiKey: string, maxResults
       }
     }
 
-    // If all geocoding attempts failed, fall back to standard search
+    // If geocoding failed, try Places Text Search as fallback to get geometry
     if (!geocodeData) {
-      console.log('❌ All geocoding attempts failed, falling back to standard search')
+      console.log('⚠️ Geocoding failed, attempting Places Text Search fallback for location geometry...')
+      
+      try {
+        // Try Places Text Search with type=locality to get geometry/viewport
+        const placesSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(baseLocation)}&type=locality&key=${googleApiKey}`
+        const placesResponse = await fetch(placesSearchUrl)
+        const placesData = await placesResponse.json()
+        apiCalls++
+
+        if (placesData.status === 'OK' && placesData.results?.length > 0) {
+          const firstResult = placesData.results[0]
+          console.log(`✓ Places Text Search found location: ${firstResult.name}`)
+          
+          // Create geocodeData structure from Places result
+          geocodeData = {
+            results: [{
+              geometry: {
+                location: firstResult.geometry.location,
+                bounds: firstResult.geometry.viewport || undefined
+              }
+            }]
+          }
+          console.log(`✓ Using geometry from Places Text Search`)
+        } else {
+          console.log(`✗ Places Text Search failed: ${placesData.status}`)
+        }
+      } catch (error) {
+        console.error('Places Text Search fallback error:', error)
+      }
+    }
+
+    // If all geocoding attempts failed (including Places fallback), fall back to standard search
+    if (!geocodeData) {
+      console.log('❌ All geocoding attempts failed (including Places fallback), falling back to standard search')
       const results = await performStandardSearch(query, googleApiKey, apiCalls, maxResults)
       return { 
         results, 
         apiCalls: apiCalls + Math.ceil(results.length / 20),
-        meta: { tilesCreated: 0, rawResults: results.length, uniqueResults: results.length, tileLogs: [] }
+        meta: { tilesCreated: 0, rawResults: results.length, uniqueResults: results.length, tileLogs: [], fallbackReason: 'geocoding_failed' }
       }
     }
 
@@ -438,7 +471,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, maxResults = 60, searchIntensity = 'low' } = await req.json()
+    const { query, maxResults = 200, searchIntensity = 'low' } = await req.json()
     
     if (!query) {
       return new Response(
@@ -508,7 +541,7 @@ serve(async (req) => {
     const detailedResults = await Promise.all(
       allResults.map(async (place: PlaceResult) => {
         try {
-          const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,rating,user_ratings_total,business_status,website,price_level,reviews&key=${googleApiKey}`
+          const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,rating,user_ratings_total,business_status,website,price_level&key=${googleApiKey}`
           
           const detailsResponse = await fetch(detailsUrl)
           const detailsData = await detailsResponse.json()
@@ -526,12 +559,7 @@ serve(async (req) => {
               status: details.business_status,
               website: details.website,
               priceLevel: details.price_level,
-              reviews: (details.reviews || []).slice(0, 10).map(review => ({
-                author: review.author_name,
-                rating: review.rating,
-                text: review.text,
-                time: review.relative_time_description
-              }))
+              reviews: []
             }
           } else {
             // Fallback to basic info if details fail
